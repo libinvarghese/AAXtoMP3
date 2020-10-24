@@ -5,7 +5,7 @@
 # Command Line Options
 
 # Usage Synopsis.
-usage=$'\nUsage: AAXtoMP3 [--flac] [--aac] [--opus ] [--single] [--chaptered]\n[-e:mp3] [-e:m4a] [-e:m4b] [--authcode <AUTHCODE>] [--no-clobber]\n[--target_dir <PATH>] [--complete_dir <PATH>] [--validate]\n{FILES}\n'
+usage=$'\nUsage: AAXtoMP3 [--flac] [--aac] [--opus ] [--single] [--chaptered]\n[-e:mp3] [-e:m4a] [-e:m4b] [--authcode <AUTHCODE>] [--no-clobber]\n[--target_dir <PATH>] [--complete_dir <PATH>] [--ignore cover,main,chapters] [--validate]\n{FILES}\n'
 codec=libmp3lame            # Default encoder.
 extension=mp3               # Default encoder extension.
 mode=chaptered              # Multi file output
@@ -16,6 +16,7 @@ container=mp3               # Just in case we need to change the container.  Use
 VALIDATE=0                  # Validate the input aax file(s) only.  No Transcoding of files will occur
 DEBUG=0                     # Default off, If set extremely verbose output.
 noclobber=0                 # Default off, clobber only if flag is enabled
+ignored=                    # Optional, used to continue from previous state
 
 # -----
 # Code tip Do not have any script above this point that calls a function or a binary.  If you do
@@ -46,6 +47,8 @@ while true; do
     -C | --complete_dir ) completedir="$2";                                             shift 2 ;;
                       # Authorization code associate with the AAX file(s)
     -A | --authcode   ) auth_code="$2";                                                 shift 2 ;;
+                      # ignore creating files if present
+    -I | --ignore     ) ignored="$2";                                                   shift 2 ;;
                       # Don't overwrite the target directory if it already exists
     -n | --no-clobber ) noclobber=1;                                                    shift ;;
                       # Extremely verbose output.
@@ -134,7 +137,7 @@ log() {
 
 # -----
 # Print out what we have already after command line processing.
-debug_vars "Command line options as set" codec extension mode container targetdir completedir auth_code
+debug_vars "Command line options as set" codec extension mode container targetdir completedir auth_code ignored
 
 # ========================================================================
 # Variable validation
@@ -380,19 +383,31 @@ do
   # and coders wanting to extend the script.
   debug_vars "Book and Variable values" title auth_code mode aax_file container codec bitrate artist album_artist album album_date genre copyright output_file metadata_file working_directory
 
+  cp -v ${metadata_file} "${output_directory}"
+
   # -----
   # This is the main work horse command.  This is the primary transcoder.
   # This is the primary transcode. All the heavy lifting is here.
-  debug 'ffmpeg -loglevel error -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" "${output_file}"'
-  </dev/null ffmpeg -loglevel error -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" -f ${container} "${output_file}"
+  if ! [[ "$ignored" == *"main"* && -f "${output_file}" ]]
+  then
+    debug 'ffmpeg -loglevel error -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" "${output_file}"'
+    </dev/null ffmpeg -loglevel error -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" -f ${container} "${output_file}"
 
-  log "Created ${output_file}."
+    log "Created ${output_file}."
+  else
+    log "Ignoring ${output_file}. Already Exists!"
+  fi
   # -----
 
   # Grab the cover art if available.
   cover_file="${output_directory}/cover.jpg"
   log "Extracting cover into ${cover_file}..."
-  </dev/null ffmpeg -loglevel error -activation_bytes "${auth_code}" -i "${aax_file}" -an -codec:v copy "${cover_file}"
+  if ! [[ "$ignored" == *"cover"* && -f "${cover_file}" ]]
+  then
+    </dev/null ffmpeg -loglevel error -activation_bytes "${auth_code}" -i "${aax_file}" -an -codec:v copy "${cover_file}"
+  else
+    log "Ignoring ${cover_file}. Already Exists!"
+  fi
 
   # -----
   # OK now spit the file if that's what you want.
@@ -403,7 +418,12 @@ do
     # Playlist m3u support
     playlist_file="${output_directory}/${title}.m3u"
     log "Creating PlayList ${title}.m3u"
-    echo '#EXTM3U' > "${playlist_file}"
+    if ! [[ "$ignored" == *"chapters"* && -f "${playlist_file}" ]]
+    then
+      echo '#EXTM3U' > "${playlist_file}"
+    else
+      log "Ignoring ${playlist_file}. Already Exists!"
+    fi
 
     # Determine the number of chapters.
     chaptercount=$($GREP -Pc "Chapter.*start.*end" $metadata_file)
@@ -415,6 +435,7 @@ do
       if [[ "${first}" = "Chapter" ]]; then
         read -r -u9 _
         read -r -u9 _ _ chapter
+        did_ignore_chapter=false
 
         # The formatting of the chapters names and the file names.
         # Chapter names are used in a few place.
@@ -435,31 +456,49 @@ do
         # Extract chapter by time stamps start and finish of chapter.
         # This extracts based on time stamps start and end.
         log "Splitting chapter ${chapternum} start:${chapter_start%?}(s) end:${chapter_end}(s)"
-        </dev/null ffmpeg -loglevel quiet -nostats -i "${output_file}" -i "${cover_file}" -ss "${chapter_start%?}" -to "${chapter_end}" -map 0:0 -map 1:0 -acodec "${codec}" ${id3_version_param} \
-        -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (Front)" -metadata track="${chapternum}" -metadata title="${chapter_title}" \
-        -metadata:s:a title="${chapter_title}" -metadata:s:a track="${chapternum}" -map_chapters -1 \
-        -f ${container} "${chapter_file}"
+        if [[ "$ignored" == *"chapters"* && -f "${chapter_file}" &&! -z "${chapter_file}" ]]
+        then
+          rm ${chapter_file}
+          log "Removing ZERO size file ${chapter_file}"
+        fi
+
+        if [[ "$ignored" == *"chapters"* && -f "${chapter_file}" ]]
+        then 
+          </dev/null ffmpeg -loglevel quiet -nostats -i "${output_file}" -i "${cover_file}" -ss "${chapter_start%?}" -to "${chapter_end}" -map 0:0 -map 1:0 -acodec "${codec}" ${id3_version_param} \
+          -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (Front)" -metadata track="${chapternum}" -metadata title="${chapter_title}" \
+          -metadata:s:a title="${chapter_title}" -metadata:s:a track="${chapternum}" -map_chapters -1 \
+          -f ${container} "${chapter_file}"
+        else
+          log "Ignoring ${chapter_file}. Already Exists!"
+          did_ignore_chapter=true
+        fi
 
         # -----
         # OK lets get what need for the next chapter in the Playlist m3u file.
         # Playlist creation.
         duration=$(echo "${chapter_end} - ${chapter_start%?}" | bc)
-        echo "#EXTINF:${duration%.*},${title} - ${chapter}" >>  "${playlist_file}"
-        echo "${chapter_title}.${extension}" >> "${playlist_file}"
+        if $did_ignore_chapter
+        then
+          echo "#EXTINF:${duration%.*},${title} - ${chapter}" >>  "${playlist_file}"
+          echo "${chapter_title}.${extension}" >> "${playlist_file}"
+        fi
         chapternum=$((chapternum + 1 ))
 
         # ----
         # Add the cover art to m4a and m4b file types.
         if [[ ${container} == "mp4" && $(type -P mp4art) ]]; then
-          mp4art -q --add "${cover_file}" "${chapter_file}"
-          log "Added cover art to ${chapter_title}"
+          if $did_ignore_chapter
+          then
+            mp4art -q --add "${cover_file}" "${chapter_file}"
+            log "Added cover art to ${chapter_title}"
+          fi
         fi
 
       fi
     done 9< "$metadata_file"
 
     # Clean up of working directory stuff.
-    rm "${output_file}"
+    # rm "${output_file}"
     log "Done creating chapters for ${output_directory}."
   else
     # Perform file tasks on output file.

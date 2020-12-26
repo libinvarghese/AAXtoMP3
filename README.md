@@ -27,9 +27,9 @@ conversions in OSX. It is recommended that you install GNU grep using 'brew inst
 ## AUR
 Thanks to kbabioch, this script has also been packaged in the [AUR](https://aur.archlinux.org/packages/aaxtomp3-git/). Note that you will still need to extract your activation bytes before use.
 
-## Usage(s)
+## Usage(s) AAXtoMP3
 ```
-bash AAXtoMP3 [-f|--flac] [-o|--opus] [-a|-aac] [-s|--single] [-c|--chaptered] [-e:mp3] [-e:m4a] [-e:m4b] [-A|--authcode <AUTHCODE>] [-n|--no-clobber] [-t|--target_dir <PATH>] [-C|--complete_dir <PATH>] [-V|--validate] [-d|--debug] [-h|--help] <AAX INPUT_FILES>...
+bash AAXtoMP3 [-f|--flac] [-o|--opus] [-a|-aac] [-s|--single] [-c|--chaptered] [-e:mp3] [-e:m4a] [-e:m4b] [-A|--authcode <AUTHCODE>] [-n|--no-clobber] [-t|--target_dir <PATH>] [-C|--complete_dir <PATH>] [-V|--validate] [--ignore cover,main,chapters] [-d|--debug] [-h|--help] <AAX INPUT_FILES>...
 ```
 
 * **&lt;AAX INPUT_FILES&gt;**... are considered input file(s), useful for batching!
@@ -48,7 +48,7 @@ bash AAXtoMP3 [-f|--flac] [-o|--opus] [-a|-aac] [-s|--single] [-c|--chaptered] [
 * **-e:m4b**         Create a m4b audio file. This is the book version of the m4a format.
 * **-s** or **--single**    Output a single file for the entire book. If you only want a single ogg file for instance.
 * **-c** or **--chaptered** Output a single file per chapter. The `--chaptered` will only work if it follows the `--aac -e:m4a -e:m4b` options.
-
+* **-I** or **--ignore** ignore creating files if present. used to continue from previous state
 
 ### [AUTHCODE]
 **Your** Audible auth code (it won't correctly decode otherwise) (required).
@@ -65,6 +65,34 @@ In order of __precidence__.
 2. __.authcode__ If this file is placed in the current working directory and contains only the authcode it is used if the above is not.
 3. __~/.authcode__ a global config file for all the tools. And is used as the default if none of the above are specified.
 __Note:__ At least one of the above must be exist. The code must also match the encoding for the user that owns the AAX file(s). If the authcode does not match the AAX file no transcoding will occur.
+
+## Usage(s) AAXCtoMP3
+```
+bash AAXCtoMP3 [-f|--flac] [-o|--opus] [-a|-aac] [-s|--single] [-c|--chaptered] [-e:mp3] [-e:m4a] [-e:m4b] [-n|--no-clobber] [-t|--target_dir <PATH>] [-C|--complete_dir <PATH>] [-V|--validate] [--ignore cover,main,chapters] [-d|--debug] [-h|--help] --key KEY --iv IV FILE <AAX INPUT_FILE>...
+```
+
+* **&lt;AAX INPUT_FILES&gt;**... are considered input file(s), useful for batching!
+
+## Options
+* **-f** or **--flac**   Flac Encoding and Produces a single file.
+* **-o** or **--opus**   Ogg/Opus Encoding defaults to multiple file output by chapter. The extension is .ogg
+* **-a** or **--aac**    AAC Encoding and produce a m4a single files output.
+* **-A** or **--authcode &lt;AUTHCODE&gt;** for this execution of the command use the provided &lt;AUTHCODE&gt; to decode the AAX file.
+* **-n** or **--no-clobber** If set and the target directory already exists, AAXtoMP3 will exit without overwriting anything.
+* **-t** or **--target_dir &lt;PATH&gt;** change the default output location to the named &lt;PATH&gt;. Note the default location is ./Audiobook of the directory to which each AAX file resides.
+* **-C** or **--complete_dir &lt;PATH&gt;** a directory to place aax files after they have been decoded successfully. Note make a back up of your aax files prior to using this option. Just in case something goes wrong.
+* **-V** or **--validate** Perform 2 validation tests on the supplied aax files. This is more extensive than the normal validation as we attempt to transcode the aax file to a null file.  This can take a long period of time. However it is useful when inspecting a large set of aax files prior to transcoding. As download errors are common with Audible servers.
+* **-e:mp3**         Identical to defaults.
+* **-e:m4a**         Create a m4a audio file. This is identical to --aac
+* **-e:m4b**         Create a m4b audio file. This is the book version of the m4a format.
+* **-s** or **--single**    Output a single file for the entire book. If you only want a single ogg file for instance.
+* **-c** or **--chaptered** Output a single file per chapter. The `--chaptered` will only work if it follows the `--aac -e:m4a -e:m4b` options.
+* **-I** or **--ignore** ignore creating files if present. used to continue from previous state
+* **-k** or **--key** key used to decrypt AAXC file
+* **-i** or **--iv** iv used to decrypt AAXC file
+
+
+## Encoding
 
 ### MP3 Encoding
 * This is the **default** encoding
@@ -115,6 +143,9 @@ __Note:__ At least one of the above must be exist. The code must also match the 
 
 ### Installing Dependencies.
 #### FFMPEG,FFPROBE
+
+NOTE: for AAXC you need a patch for AAXC demuxer.
+
 __Ubuntu, Linux Mint, Debian__
 ```
 sudo apt-get update
@@ -153,6 +184,9 @@ sudo yum install ffmpeg
 __MacOS__
 ```
 brew install ffmpeg
+OR
+brew install libinvarghese/tap/ffmpeg       # required for AAXC to work
+
 brew install gnu-sed
 brew install grep
 ```
